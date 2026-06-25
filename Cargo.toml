@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 memmap2 = "0.9.11"
 
+[dev-dependencies]
+criterion = { version = "5.0.0", package = "codspeed-criterion-compat" }
+
 [profile.release]
 codegen-units = 1       # number of threads on compilation. 1 allows for maximum optimization
 incremental = false     # prevents information to be saved locally to improve recomp times
