@@ -15,4 +15,9 @@ incremental = false     # prevents information to be saved locally to improve re
 lto = true              # Causes extended linking time at the expense of compile time
 opt-level = 3           # experiment with 2 or 3 (2 or 3 for file size optimization)
 debug = true
-strip = "debuginfo"     # removes all debug info from binary (maybe should do "true" instead)
+strip = "debuginfo"     # removes all debug info from binary (maybe should do "true" instead)ka
+
+[[bench]]
+name = "brc"
+path = "benches/benches.rs"
+harness = false
