@@ -27,7 +27,6 @@ jobs:
         run: |
           cd create_measurements
           cargo run --release -- 1000000000
-          mv measurements.txt ../create_measurements/measurements.txt
 
       - name: Build the benchmark target(s)
         run: cargo codspeed build
