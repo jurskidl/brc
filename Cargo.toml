@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-memmap2 = "0.9.10"
+memmap2 = "0.9.11"
 
 [profile.release]
 codegen-units = 1       # number of threads on compilation. 1 allows for maximum optimization
