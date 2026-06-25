@@ -24,7 +24,7 @@ jobs:
           bins: cargo-codspeed
 
       - name: Generate input file
-        run: cargo run --release 1000000000 --manifest-path create_measurements/Cargo.toml
+        run: cargo run --release --manifest-path create_measurements/Cargo.toml -- 1000000000
 
       - name: Build the benchmark target(s)
         run: cargo codspeed build
