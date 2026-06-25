@@ -187,7 +187,7 @@ fn print_results(entries: Vec<(String, Records)>) -> () {
 }
 
 fn main() {
-    let mut entries = process_file("./measurements.txt")
+    let mut entries = process_file("create_measurements/measurements.txt")
         .expect("Failed to process the file")
         .into_iter()
         .collect::<Vec<(String, Records)>>();
