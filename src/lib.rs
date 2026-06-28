@@ -1,13 +1,6 @@
 #![feature(portable_simd)]
 use memmap2::MmapOptions;
-use std::{
-    collections::HashMap,
-    fs::File,
-    sync::Arc,
-    simd::{
-        prelude::SimdPartialEq,
-        Simd},
-    thread};
+use std::{collections::HashMap, fs::File, str::from_utf8_unchecked, sync::Arc, thread};
 
 struct Records {
     count: u32,
@@ -57,23 +50,43 @@ impl Records {
     }
 }
 
-
 const CHUNK_SIZE: usize = 256 * 1024; // assume 256KB
 const CHUNK_OVERLAP: usize = 128;
 
 #[inline(always)]
-fn find_newline(buffer: &[u8]) -> usize {
-    let newline = Simd::<u8, 64>::splat(b'\n');
+fn chunk_boundaries(buffer: &[u8]) -> Vec<(usize, usize)> {
+    let len = buffer.len();
+    let step = CHUNK_SIZE - CHUNK_OVERLAP;
+    let steps = (len).div_ceil(step);
 
-    (0..buffer.len().min(CHUNK_OVERLAP))
-        .step_by(64)
-        .filter(|x| x + 64 <= buffer.len())
-        .map(|x| {
-            let chunk = Simd::<u8, 64>::from_slice(&buffer[x..x + 64]);
-            chunk.simd_eq(newline).first_set().map(|pos| x + pos)
-        })
-        .find_map(|x| x)
-        .unwrap_or(0)
+    let mut starts = Vec::with_capacity(steps);
+
+    // Start with beginning of file
+    starts.push(0);
+
+    // Find all chunk boundaries
+    let mut pos = step;
+    while pos < len {
+        let scan_end = (pos + CHUNK_OVERLAP).min(len);
+        if let Some(nl) = memchr::memchr(b'\n', &buffer[pos..scan_end]) {
+            pos += nl + 1;
+        } else {
+            pos += CHUNK_OVERLAP;
+        }
+        if pos < len {
+            starts.push(pos);
+            pos += step;
+        }
+    }
+
+    // Add end of file
+    starts.push(len);
+
+    starts
+        .windows(2)
+        .map(|w| (w[0], w[1]))
+        .chain(std::iter::once((*starts.last().unwrap(), len)))
+        .collect()
 }
 
 #[inline(always)]
@@ -85,8 +98,8 @@ fn parse_value(buffer: &[u8]) -> i16 {
         4 => {
             if buffer[0] != b'-' {
                 ((buffer[0] - b'0') as i16 * 100)
-                + ((buffer[1] - b'0') as i16 * 10)
-                + (buffer[3] - b'0') as i16
+                    + ((buffer[1] - b'0') as i16 * 10)
+                    + (buffer[3] - b'0') as i16
             } else {
                 -(((buffer[1] - b'0') as i16 * 10) + (buffer[3] - b'0') as i16)
             }
@@ -104,18 +117,33 @@ fn parse_value(buffer: &[u8]) -> i16 {
 fn parse_chunk(buffer: &[u8]) -> HashMap<&[u8], Records> {
     let mut hash: HashMap<&[u8], Records> = HashMap::with_capacity(10_000);
 
-    for line in buffer[0..].split(|&b| b == b'\n') {
+    let mut start = 0;
+    for nl in memchr::memchr_iter(b'\n', buffer) {
+        let line = &buffer[start..nl];
+        start = nl + 1;
         if line.is_empty() {
             continue;
         }
-        if let Some(pos) = line.iter().position(|&b| b == b';') {
-            let key = &line[..pos];
-            let value = parse_value(&line[pos + 1..]);
+        if let Some(semi) = memchr::memchr(b';', line) {
+            let key = &line[..semi];
+            let value = parse_value(&line[semi + 1..]);
             match hash.entry(key) {
                 std::collections::hash_map::Entry::Occupied(mut e) => e.get_mut().update(value),
                 std::collections::hash_map::Entry::Vacant(e) => {
                     e.insert(Records::new(value));
                 }
+            }
+        }
+    }
+
+    let tail = &buffer[start..];
+    if let Some(semi) = memchr::memchr(b';', tail) {
+        let key = &tail[..semi];
+        let value = parse_value(&tail[semi + 1..]);
+        match hash.entry(key) {
+            std::collections::hash_map::Entry::Occupied(mut e) => e.get_mut().update(value),
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(Records::new(value));
             }
         }
     }
@@ -127,15 +155,8 @@ fn process_file(filename: &str) -> std::io::Result<HashMap<String, Records>> {
     let num_threads = thread::available_parallelism().unwrap().get();
     let file = File::open(filename).expect("Unable to read the file");
     let mapped_file = Arc::new(unsafe { MmapOptions::new().map(&file).unwrap() });
-    let file_len = mapped_file.len();
-    let step = CHUNK_SIZE - CHUNK_OVERLAP;
 
-    let work_queue = Arc::new(
-        (0..file_len)
-            .step_by(step)
-            .map(|start| (start, (start + CHUNK_SIZE).min(file_len)))
-            .collect::<Vec<(usize, usize)>>(),
-    );
+    let work_queue = Arc::new(chunk_boundaries(&mapped_file));
 
     let work_split = (work_queue.len() + num_threads - 1) / num_threads;
 
@@ -148,16 +169,15 @@ fn process_file(filename: &str) -> std::io::Result<HashMap<String, Records>> {
                 let mut local_hash: HashMap<String, Records> = HashMap::with_capacity(10_000);
                 for &(start, end) in &work {
                     let buffer = &mmap[start..end];
-                    let chunk_start = find_newline(&buffer[0..CHUNK_OVERLAP.min(buffer.len())]);
-                    let tail_start = buffer.len().saturating_sub(CHUNK_OVERLAP);
-                    let chunk_end = tail_start + find_newline(&buffer[tail_start..]);
-                    if chunk_end > chunk_start {
-                        let chunk_hash = parse_chunk(&buffer[chunk_start..chunk_end]);
-                        for (key, record) in chunk_hash {
-                            let key = String::from_utf8_lossy(key).trim().to_string();
-                            match local_hash.entry(key) {
-                                std::collections::hash_map::Entry::Occupied(mut entry) => entry.get_mut().merge(record),
-                                std::collections::hash_map::Entry::Vacant(entry) => { entry.insert(record); }
+                    let chunk_hash = parse_chunk(buffer);
+                    for (key, record) in chunk_hash {
+                        let key = unsafe { from_utf8_unchecked(key) }.to_string();
+                        match local_hash.entry(key) {
+                            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                                entry.get_mut().merge(record)
+                            }
+                            std::collections::hash_map::Entry::Vacant(entry) => {
+                                entry.insert(record);
                             }
                         }
                     }
@@ -171,12 +191,16 @@ fn process_file(filename: &str) -> std::io::Result<HashMap<String, Records>> {
     for handle in handles {
         for (key, record) in handle.join().unwrap() {
             match global_hash.entry(key) {
-                std::collections::hash_map::Entry::Occupied(mut entry) => entry.get_mut().merge(record),
-                std::collections::hash_map::Entry::Vacant(entry) => { entry.insert(record); }
+                std::collections::hash_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().merge(record)
+                }
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(record);
+                }
             }
         }
     }
-    
+
     Ok(global_hash)
 }
 
@@ -193,5 +217,5 @@ pub fn brc(file: &str) -> () {
         .collect::<Vec<(String, Records)>>();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // print_results(entries)
+    print_results(entries)
 }

@@ -5,9 +5,11 @@ edition = "2024"
 
 [dependencies]
 memmap2 = "0.9.11"
+memchr = "2"
+
 
 [dev-dependencies]
-criterion = { version = "5.0.0", package = "codspeed-criterion-compat" }
+criterion = "0.8.2"
 
 [profile.release]
 codegen-units = 1       # number of threads on compilation. 1 allows for maximum optimization
@@ -15,7 +17,15 @@ incremental = false     # prevents information to be saved locally to improve re
 lto = true              # Causes extended linking time at the expense of compile time
 opt-level = 3           # experiment with 2 or 3 (2 or 3 for file size optimization)
 debug = true
-strip = "debuginfo"     # removes all debug info from binary (maybe should do "true" instead)ka
+strip = "debuginfo"     # removes all debug info from binary (maybe should do "true" instead)
+
+[profile.bench]
+codegen-units = 1       # number of threads on compilation. 1 allows for maximum optimization
+incremental = false     # prevents information to be saved locally to improve recomp times
+lto = true              # Causes extended linking time at the expense of compile time
+opt-level = 3           # experiment with 2 or 3 (2 or 3 for file size optimization)
+debug = true
+strip = "debuginfo"     # removes all debug info from binary (maybe should do "true" instead)
 
 [[bench]]
 name = "brc"

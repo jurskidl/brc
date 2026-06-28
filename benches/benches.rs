@@ -1,5 +1,6 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use brc::brc;
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::hint::black_box;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     let file: &str = "create_measurements/measurements.txt";
