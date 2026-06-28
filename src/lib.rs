@@ -50,7 +50,7 @@ impl Records {
     }
 }
 
-const CHUNK_SIZE: usize = 256 * 1024; // assume 256KB
+const CHUNK_SIZE: usize = 512 * 1024; // assume 512 KB
 const CHUNK_OVERLAP: usize = 128;
 
 #[inline(always)]
