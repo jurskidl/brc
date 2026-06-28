@@ -193,5 +193,5 @@ pub fn brc(file: &str) -> () {
         .collect::<Vec<(String, Records)>>();
     entries.sort_by(|a, b| a.0.cmp(&b.0));
 
-    print_results(entries)
+    // print_results(entries)
 }
